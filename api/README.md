@@ -82,8 +82,20 @@ Requires the Postgres/TimescaleDB instance from `infra/docker-compose.yml`
 | `ANTHROPIC_API_KEY` | - | Required for `/chat` |
 | `CHAT_MODEL` | `claude-opus-4-8` | Model used by `/chat`'s tool runner |
 | `LIVE_FEED_POLL_INTERVAL_SECONDS` | `3` | How often `/anomalies/live` polls `anomalies` for new rows |
+| `API_KEY` | unset | If set, every route except `GET /` requires a matching `X-API-Key` header (WebSocket: header or `?api_key=` query param) |
 
 Loaded via `python-dotenv` from a repo-root `.env` (see `.env.example`).
+
+## Auth
+
+Unset `API_KEY` (the default) leaves every endpoint open — fine for local
+dev, where the DB itself isn't reachable from outside `docker compose`'s
+network. Set `API_KEY` before exposing this service beyond localhost/a
+trusted network; requests then need `X-API-Key: <value>`. This is a shared
+secret meant for server-to-server or trusted-network protection, not
+end-user auth — the frontend does not send it, since a key embedded in
+client-side JS isn't actually secret. A real multi-user deployment needs
+session/token-based auth in front of this, which is out of scope here.
 
 ## Docker / docker-compose
 

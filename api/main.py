@@ -24,7 +24,7 @@ from typing import Optional
 
 import anthropic
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import db
@@ -69,6 +69,19 @@ guessing. Be concise and cite the concrete values you observed."""
 
 anthropic_client = anthropic.Anthropic()
 
+# Optional shared-secret auth. Unset (the default for local dev/docker-compose)
+# means every route below is open -- set API_KEY before exposing this service
+# beyond localhost. Enforced via a dependency rather than middleware so the
+# WebSocket route (which authenticates itself separately, see below) and the
+# health check at "/" can opt out explicitly.
+API_KEY = os.environ.get("API_KEY")
+
+
+def require_api_key(x_api_key: Optional[str] = Header(None)) -> None:
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Missing or invalid X-API-Key header")
+
+
 app = FastAPI(
     title="Weather Anomaly API",
     description="Read API + chat endpoint over the weather anomaly detection pipeline.",
@@ -85,12 +98,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    response = await call_next(request)
+    logger.info("%s %s -> %s", request.method, request.url.path, response.status_code)
+    return response
+
+
 @app.get("/")
 def root() -> dict:
     return {"service": "weather-anomaly-api", "status": "ok"}
 
 
-@app.get("/timeseries", response_model=TimeseriesResponse)
+@app.get("/timeseries", response_model=TimeseriesResponse, dependencies=[Depends(require_api_key)])
 def get_timeseries(
     station_id: str = Query(..., description="Station identifier, e.g. 'denver-co'."),
     variable: str = Query(..., description="Weather variable, e.g. 'temperature_c'."),
@@ -109,7 +129,7 @@ def get_timeseries(
     )
 
 
-@app.get("/anomalies", response_model=AnomaliesResponse)
+@app.get("/anomalies", response_model=AnomaliesResponse, dependencies=[Depends(require_api_key)])
 def get_anomalies(
     status: Optional[str] = Query(None, description="new | investigating | confirmed | dismissed"),
     severity: Optional[str] = Query(None, description="low | medium | high"),
@@ -124,14 +144,14 @@ def get_anomalies(
     return AnomaliesResponse(count=len(anomalies), anomalies=anomalies)
 
 
-@app.get("/reports", response_model=ReportsResponse)
+@app.get("/reports", response_model=ReportsResponse, dependencies=[Depends(require_api_key)])
 def get_reports() -> ReportsResponse:
     rows = db.fetch_reports()
     reports = [Report(**row) for row in rows]
     return ReportsResponse(count=len(reports), reports=reports)
 
 
-@app.get("/reports/{report_id}", response_model=Report)
+@app.get("/reports/{report_id}", response_model=Report, dependencies=[Depends(require_api_key)])
 def get_report(report_id: int) -> Report:
     row = db.fetch_report(report_id)
     if row is None:
@@ -139,7 +159,7 @@ def get_report(report_id: int) -> Report:
     return Report(**row)
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_api_key)])
 def chat(request: ChatRequest) -> ChatResponse:
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="message must not be empty")
@@ -174,6 +194,13 @@ async def anomalies_live(websocket: WebSocket) -> None:
     ones out as JSON. No LISTEN/NOTIFY -- not worth the added complexity for
     a batch-inserted table.
     """
+    if API_KEY and websocket.headers.get("x-api-key") != API_KEY:
+        # WebSocket handshakes can't carry a custom header from a browser
+        # EventSource-style client uniformly, so also accept it as a query
+        # param (?api_key=...) for clients that can't set headers on connect.
+        if API_KEY != websocket.query_params.get("api_key"):
+            await websocket.close(code=1008)
+            return
     await websocket.accept()
     try:
         last_id = await asyncio.to_thread(db.max_anomaly_id)
