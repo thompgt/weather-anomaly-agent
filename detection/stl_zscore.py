@@ -42,17 +42,37 @@ STL_PERIOD = int(os.environ.get("STL_PERIOD_HOURS", 24))
 MIN_POINTS = STL_PERIOD * 2
 
 
+MAX_ABS_SCORE = 50.0  # well past the "high" severity cutoff; caps nonsensical magnitudes
+
+
 def robust_zscore(residual: pd.Series) -> pd.Series:
+    # Floor the denominator relative to the residual's own scale so a
+    # near-zero (but not exactly zero) MAD/std can't blow the ratio up to an
+    # astronomical score -- e.g. low-precision source data (values rounded
+    # to whole units) can make most residuals identical, leaving MAD/std
+    # many orders of magnitude smaller than the handful of points that do
+    # differ.
+    scale_floor = max(residual.abs().median() * 1e-3, 1e-6)
+
     median = residual.median()
     mad = (residual - median).abs().median()
-    if mad == 0 or np.isnan(mad):
+    if mad <= scale_floor or np.isnan(mad):
         # Degenerate/flat residual: fall back to std, and if that's also
         # zero everything is exactly on trend -- no anomalies possible.
         std = residual.std()
-        if std == 0 or np.isnan(std):
+        if std <= scale_floor or np.isnan(std):
             return pd.Series(0.0, index=residual.index)
-        return (residual - residual.mean()) / std
-    return 0.6745 * (residual - median) / mad
+        z = (residual - residual.mean()) / std
+    else:
+        z = 0.6745 * (residual - median) / mad
+
+    # Even with the floor above, a discretized/low-precision source signal
+    # can still leave the denominator many orders of magnitude smaller than
+    # a handful of genuinely-different points, producing scores with no
+    # real statistical meaning (seen in practice: >30,000). Clip rather than
+    # let a degenerate scale produce an uninterpretable stored score --
+    # severity classification only cares whether |z| clears ~6 anyway.
+    return z.clip(lower=-MAX_ABS_SCORE, upper=MAX_ABS_SCORE)
 
 
 def detect_stl_zscore(
