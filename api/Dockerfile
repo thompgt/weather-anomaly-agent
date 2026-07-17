@@ -1,17 +1,16 @@
-# NOTE: infra/docker-compose.yml builds this image with `context: ../api`,
-# i.e. only the api/ directory is available as build context. /chat imports
-# `agent.tools`, which lives in the sibling agent/ directory -- that import
-# only resolves if agent/ is present in the image. See api/README.md
-# "Known limitation" for how to fix this (repo-root build context, or
-# vendoring agent/ into api/) without touching infra/docker-compose.yml.
+# Built with repo-root context (see infra/docker-compose.yml: `context: ..`,
+# `dockerfile: api/Dockerfile`) because /chat imports the sibling agent/
+# package -- api/-only context can't see it.
 FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY api/requirements.txt ./api/requirements.txt
+COPY agent/requirements.txt ./agent/requirements.txt
+RUN pip install --no-cache-dir -r api/requirements.txt -r agent/requirements.txt
 
-COPY . ./api
+COPY api/ ./api
+COPY agent/ ./agent
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000

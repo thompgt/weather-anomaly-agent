@@ -87,31 +87,16 @@ Loaded via `python-dotenv` from a repo-root `.env` (see `.env.example`).
 
 ## Docker / docker-compose
 
-`infra/docker-compose.yml` builds this service with `context: ../api` and
-injects `DATABASE_URL` pointing at the `db` service; the container listens
-on `0.0.0.0:8000` (mapped to host port 8000).
+`infra/docker-compose.yml` builds this service with a repo-root build context
+(`context: ..`, `dockerfile: api/Dockerfile`) so the image can `COPY` in the
+sibling `agent/` package that `/chat` imports, and injects `DATABASE_URL`
+pointing at the `db` service; the container listens on `0.0.0.0:8000` (mapped
+to host port 8000).
 
 ```bash
 cd infra
 docker compose up -d
 ```
-
-**Known limitation:** because the compose file's build context is `../api`
-only, the Docker image does not include the sibling `agent/` directory that
-`/chat` imports (`from agent.tools import ALL_TOOLS`). Every other endpoint
-works fine in the container; `/chat` will fail to import at container
-startup until either:
-
-- `infra/docker-compose.yml`'s `api` service build context is widened to the
-  repo root (e.g. `context: ..`, `dockerfile: api/Dockerfile`) so `agent/`
-  can be `COPY`'d in, or
-- `agent/` is vendored/copied into `api/` at build time via a script, or
-- `/chat`'s tool implementations are inlined into `api/` instead of imported
-  from `agent/`.
-
-This wasn't fixed here since `infra/docker-compose.yml` is out of scope for
-this change. Running the API directly with `uvicorn` (not Docker) is
-unaffected -- `agent/` is a normal sibling package on the Python path there.
 
 ## Architecture notes
 
