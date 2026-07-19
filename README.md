@@ -54,3 +54,19 @@ This whole path has been run end-to-end against real Open-Meteo data during
 development, including the anomaly detection engine, the FastAPI layer, and
 the frontend build — everything except the live `/chat` → Claude API call,
 which needs a real `ANTHROPIC_API_KEY`.
+
+## Live demo notebook
+
+`notebooks/live_demo.ipynb` runs the core pipeline against **real, live
+weather data** with no Docker/TimescaleDB/API/frontend needed: it fetches
+current Open-Meteo readings, runs both anomaly detectors in-memory, plots
+the results (including a side-by-side comparison of how much STL/z-score
+and Seasonal-Hybrid ESD actually agree), and — if `ANTHROPIC_API_KEY` is
+set — has Claude narrate the flagged anomalies. It's pre-executed; to
+regenerate with a fresh live pull:
+
+```bash
+pip install -r ingestion/requirements.txt -r detection/requirements.txt -r agent/requirements.txt jupyter nbconvert
+python scripts/make_live_demo_notebook.py
+cd notebooks && jupyter nbconvert --to notebook --execute --inplace live_demo.ipynb
+```
