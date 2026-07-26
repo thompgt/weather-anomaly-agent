@@ -17,36 +17,56 @@ out of the same flagged data.
 ```mermaid
 flowchart LR
     subgraph Sources["Data sources"]
-        OM["Open-Meteo / NOAA"]
+        OM["Open-Meteo"]
     end
 
-    subgraph Pipeline["Ingestion and storage"]
-        ING["ingestion/<br/>fetch, validate,<br/>normalize, upsert"]
-        DB[("TimescaleDB<br/>readings hypertable")]
+    subgraph Pipeline["Ingestion"]
+        ING["ingestion/<br/>fetch, backfill, scheduler:<br/>validate, normalize, upsert"]
     end
 
-    subgraph Analysis["Detection and interpretation"]
-        DET["detection/<br/>STL/z-score +<br/>Seasonal-Hybrid ESD"]
-        AN[("anomalies table")]
-        AGENT["agent/<br/>Claude: monitor-loop<br/>alerts + scheduled reports<br/>(read-only DB tools)"]
+    subgraph Store["TimescaleDB"]
+        RD[("readings hypertable<br/>+ readings_hourly / readings_daily<br/>continuous aggregates")]
+        AN[("anomalies")]
+        RP[("reports")]
+    end
+
+    subgraph Analysis["Detection — no LLM"]
+        DET["detection/<br/>STL/z-score +<br/>Seasonal-Hybrid ESD<br/>+ severity scoring"]
+    end
+
+    subgraph AI["Claude agent"]
+        AGENT["agent/<br/>monitor loop + scheduled reports<br/>tools: query_timeseries, get_anomalies,<br/>run_stat_summary, compare_to_climatology,<br/>update_anomaly, send_alert, save_report"]
     end
 
     subgraph Serving["Serving"]
-        API["api/<br/>FastAPI:<br/>/timeseries /anomalies<br/>/reports /chat"]
+        API["api/<br/>FastAPI: /timeseries /anomalies<br/>/reports /chat<br/>+ WS /anomalies/live"]
         FE["frontend/<br/>React/TS dashboard:<br/>charts, alerts, reports, chat"]
     end
 
-    OM --> ING --> DB --> DET --> AN
-    AN --> AGENT
+    SLACK["Slack webhook"]
+
+    OM --> ING --> RD
+    RD --> DET --> AN
+    RD -- "reads" --> AGENT
+    AN -- "reads" --> AGENT
+    AGENT -- "status + agent_note" --> AN
+    AGENT -- "save_report" --> RP
+    AGENT -- "send_alert" --> SLACK
+    RD --> API
     AN --> API
-    AGENT --> API
+    RP --> API
+    API -- "/chat runs the same agent/tools.py" --> AGENT
     API --> FE
 ```
 
-Everything left of `agent/` runs without any AI model at all — you can fetch
-real data, flag anomalies, and inspect them purely with statistics. The
-agent, API, and frontend layer natural-language narration, an HTTP/WebSocket
-interface, and a UI on top of that grounded output.
+Detection is the only path that creates anomalies, and it uses no AI model at
+all — you can fetch real data, flag anomalies, and inspect them purely with
+statistics. The agent never detects; it reads flagged anomalies (plus the raw
+readings behind them, for grounding) and writes back only interpretation:
+a status and note on the anomaly, a saved report, and a Slack alert. The API
+reads all three tables straight from the database rather than from the agent —
+the two never call each other, except that `/chat` runs the agent's own tools
+in-process to answer questions live.
 
 ## Detection in action (real data)
 
