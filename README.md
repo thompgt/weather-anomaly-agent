@@ -5,6 +5,15 @@ what looks abnormal, and a Claude-powered agent reads those flags to explain
 *why* they matter and alert on the ones that do — all surfaced through an
 API and a dashboard.
 
+## Tech Stack
+
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Claude](https://img.shields.io/badge/Claude-D97757?style=for-the-badge&logo=claude&logoColor=white)
+![TimescaleDB](https://img.shields.io/badge/TimescaleDB-FDB515?style=for-the-badge&logo=postgresql&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+
 **Why this split matters:** anomaly detection is deterministic/statistical
 (no LLM in the loop), and the agent only interprets and narrates anomalies
 the engine already flagged rather than detecting them itself. That keeps
